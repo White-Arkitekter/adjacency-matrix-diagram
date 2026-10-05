@@ -123,42 +123,53 @@
                                 :width="r.rect.width"
                                 :height="r.rect.height"
                                 class="rect"
+                                :style="{ fill: r.code && r.code.color }"
                             ></rect>
-                            <StatePrimary v-if="r.state === 'Primary'" />
-                            <StateSecondary v-if="r.state === 'Secondary'" />
-                            <StateUndesired v-if="r.state === 'Undesired'" />
+                            <text
+                                v-if="r.code"
+                                :x="r.rect.width / 2"
+                                :y="r.rect.height / 2"
+                                :transform="`rotate(-45 ${r.rect.width / 2} ${
+                                    r.rect.height / 2
+                                })`"
+                                dy="0.35em"
+                                text-anchor="middle"
+                                font-size="11"
+                                class="cell-code"
+                            >
+                                {{ r.code.code }}
+                            </text>
                         </g>
 
-                        <g
-                            :transform="`translate(${
-                                length * baseLengthUnit +
-                                rooms.length * baseLengthUnit +
-                                3 * baseLengthUnit
-                            }, 0)`"
-                        >
-                            <g transform="translate(0,0)">
-                                <StatePrimary />
-                                <text :x="30" :y="15">
-                                    <tspan>Primary Adjacency</tspan>
+                        <g :transform="`translate(${legendX}, 0)`">
+                            <g
+                                v-for="(c, ci) in codes"
+                                :key="`legend-${ci}`"
+                                :transform="`translate(0,${ci * legendRowHeight})`"
+                            >
+                                <rect
+                                    :x="0"
+                                    :y="0"
+                                    :width="legendCodeWidth"
+                                    :height="legendRowHeight - 4"
+                                    class="swatch"
+                                    :style="{ fill: c.color }"
+                                ></rect>
+                                <text
+                                    :x="legendCodeWidth / 2"
+                                    :y="(legendRowHeight - 4) / 2"
+                                    dy="0.35em"
+                                    text-anchor="middle"
+                                >
+                                    <tspan>{{ c.code || "(blank)" }}</tspan>
                                 </text>
-                            </g>
-                            <g transform="translate(0,30)">
-                                <text :x="30" :y="15">
-                                    <tspan>Secondary Adjacency</tspan>
+                                <text
+                                    :x="legendCodeWidth + baseLengthUnit"
+                                    :y="(legendRowHeight - 4) / 2"
+                                    dy="0.35em"
+                                >
+                                    <tspan>{{ c.label }}</tspan>
                                 </text>
-                                <StateSecondary />
-                            </g>
-                            <g transform="translate(0,60)">
-                                <text :x="30" :y="15">
-                                    <tspan>Undesired Adjacency</tspan>
-                                </text>
-                                <line
-                                    :x1="0"
-                                    :y1="15 / 2"
-                                    :x2="30 / Math.SQRT2"
-                                    :y2="15 / 2"
-                                    class="line"
-                                ></line>
                             </g>
                         </g>
                     </svg>
@@ -189,6 +200,15 @@
     cursor: pointer;
 }
 
+.cell-code {
+    pointer-events: none;
+    user-select: none;
+}
+
+.swatch {
+    stroke: #000;
+}
+
 .active text {
     fill: #000;
 }
@@ -206,27 +226,38 @@
     width: 100%;
 }
 
-svg {
-    width: 100%;
+#diagram {
+    overflow-x: auto;
 }
 </style>
 
 <script>
-import StatePrimary from "./StatePrimary.vue";
-import StateSecondary from "./StateSecondary.vue";
-import StateUndesired from "./StateUndesired.vue";
-
 export default {
-    components: {
-        StatePrimary,
-        StateSecondary,
-        StateUndesired,
-    },
     data() {
         return {
-            allStates: ["Primary", "Secondary", "Undesired", ""],
+            codes: [
+                {
+                    code: "1D",
+                    label: "Must connect through a door",
+                    color: "#CEEED0",
+                },
+                { code: "1W", label: "Must share a wall", color: "#E5F0DB" },
+                {
+                    code: "2",
+                    label: "Must be on the same level",
+                    color: "#E0EAF6",
+                },
+                {
+                    code: "X",
+                    label: "Must be kept apart (no shared wall, no door)",
+                    color: "#F6C9CE",
+                },
+                { code: "", label: "No requirement", color: "#FFFFFF" },
+            ],
             height: 30,
             baseLengthUnit: 10,
+            legendRowHeight: 26,
+            legendCodeWidth: 64,
             rooms: [],
             states: {},
             currentRooms: [],
@@ -236,6 +267,9 @@ export default {
         };
     },
     computed: {
+        allStates() {
+            return this.codes.map((c) => c.code);
+        },
         length() {
             if (this.rooms.length <= 0) return 0;
             let rooms = this.rooms
@@ -298,6 +332,9 @@ export default {
                     let stateKey = `${rect.from.name}-${rect.to.name}`;
                     if (this.states[stateKey]) {
                         rect.state = this.states[stateKey];
+                        rect.code = this.codes.find(
+                            (c) => c.code === rect.state
+                        );
                     }
                     rects.push(rect);
                 }
@@ -315,13 +352,30 @@ export default {
                 activeTextColor: this.activeTextColor,
             };
         },
+        legendX() {
+            // to the right of the matrix's rightmost tip, so it never overlaps
+            return (
+                this.length * this.baseLengthUnit +
+                (this.rooms.length * this.height) / 2 +
+                2 * this.baseLengthUnit
+            );
+        },
         svgSize() {
             const rects = this.modelRects || [];
             if (rects.length === 0) {
                 return { width: 0, height: 0 };
             }
-            const width = Math.max(...rects.map((r) => r.gx || 0)) + 50;
-            const height = Math.max(...rects.map((r) => r.gy || 0)) + 50;
+            const longestLabel = Math.max(
+                ...this.codes.map((c) => c.label.length)
+            );
+            const width =
+                this.legendX +
+                this.legendCodeWidth +
+                (longestLabel + 2) * this.baseLengthUnit;
+            const height = Math.max(
+                Math.max(...rects.map((r) => r.gy || 0)) + 50,
+                this.codes.length * this.legendRowHeight
+            );
             return { width, height };
         },
     },
@@ -461,7 +515,7 @@ export default {
             // add css
             source = source.replace(
                 /id="svg-image">/,
-                'id="svg-image"><style>circle.state-primary{fill:#000;stroke:#000}circle.state-secondary{fill:#fff;stroke:#000}line{fill:#fff;stroke:#000}.room-wrap text{fill:#cacaca}.line{stroke:#000;stroke-width:1px}.triangle{stroke:#000;fill:#fff}.rect{fill:#fff;stroke:#000;cursor:pointer}.active text{fill:#000}.row{display:-webkit-box;display:-ms-flexbox;display:flex}.haft{width:50%;padding:5px}#editor textarea{width:100%}svg{width:100%}</style>'
+                'id="svg-image"><style>.room-wrap text{fill:#cacaca}.line{stroke:#000;stroke-width:1px}.triangle{stroke:#000;fill:#fff}.rect{fill:#fff;stroke:#000;cursor:pointer}.cell-code{pointer-events:none;user-select:none}.swatch{stroke:#000}.active text{fill:#000}.row{display:-webkit-box;display:-ms-flexbox;display:flex}.haft{width:50%;padding:5px}#editor textarea{width:100%}#diagram{overflow-x:auto}</style>'
             );
             source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
             source =
